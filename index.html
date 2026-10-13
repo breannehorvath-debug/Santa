@@ -1,0 +1,70 @@
+<!DOCTYPE html>
+<html lang="en"><head><meta charset="utf-8"><title>Call Santa</title>
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<style>
+*{box-sizing:border-box}body{margin:0;min-height:100vh;display:flex;flex-direction:column;align-items:center;padding:20px 16px;font:16px/1.4 Georgia,serif;color:#fff8ee;background:radial-gradient(ellipse at top,#1d4d3a,#0e2a22 55%,#08140f) fixed}
+h1{color:#ffd84d;margin:20px 0 14px;font-size:32px}
+.tabs{display:flex;gap:8px;margin-bottom:14px}
+.tab{border:2px solid #ffd84d;background:#0004;color:#fff8ee;padding:8px 14px;border-radius:99px;font:inherit}
+.tab.on{background:#c0282d}
+.card{background:#fffaf2;color:#2a1a14;border:4px solid #c0282d;border-radius:26px;padding:22px;width:100%;max-width:420px;text-align:center}
+.avatar{width:150px;height:150px;border-radius:50%;margin:0 auto 10px;background:#f6d3b8;position:relative;overflow:hidden;border:5px solid #ffd84d}
+.hat{position:absolute;top:0;left:0;right:0;height:46px;background:#c0282d}
+.eye{position:absolute;top:70px;width:12px;height:12px;background:#222;border-radius:50%}.l{left:46px}.r{right:46px}
+.beard{position:absolute;bottom:0;left:0;right:0;height:62px;background:#fff;border-radius:50% 50% 0 0}
+.mouth{position:absolute;bottom:34px;left:62px;width:26px;height:8px;background:#7a1f1f;border-radius:0 0 20px 20px}
+.talk .mouth{animation:m .3s infinite alternate}@keyframes m{to{height:18px}}
+.phone{font-size:70px}.status{min-height:24px;color:#1f6b45;font-weight:bold;margin:6px 0}
+.log{text-align:left;max-height:170px;overflow:auto;font-size:14px;margin:8px 0}.log p{margin:4px 0}.s{color:#a81f24}
+button.main{border:2px solid #ffd84d;border-radius:99px;padding:14px 28px;font:inherit;font-size:18px;color:#fff;background:#1f6b45}
+button.main.end{background:#c0282d}
+.row{display:flex;gap:6px;margin-top:10px}input{flex:1;padding:10px;border-radius:10px;border:2px solid #1f6b45;font:inherit}
+.row .tab{color:#2a1a14;border-color:#c0282d;background:#fff}
+</style></head><body>
+<h1>🎅 Call Santa</h1>
+<div class="tabs"><button class="tab on" id="t1">📞 Phone Call</button><button class="tab" id="t2">📹 Video Call</button></div>
+<div class="card"><div id="vis"></div><div class="status" id="st">Ready when you are!</div><div class="log" id="log"></div>
+<button class="main" id="go">Start the call</button>
+<div class="row"><input id="txt" placeholder="Or type to Santa…"><button class="tab" id="send">Send</button></div></div>
+<script>
+var API=""; // same domain on Vercel. For the App Store app, set to "https://YOUR-PROJECT.vercel.app"
+var mode="phone",on=false,busy=false,hist=[],rec=null,audio=new Audio();
+var $=function(i){return document.getElementById(i)};
+var SR=window.SpeechRecognition||window.webkitSpeechRecognition;
+function draw(){$("vis").innerHTML=mode=="video"?'<div class="avatar" id="av"><div class="hat"></div><div class="eye l"></div><div class="eye r"></div><div class="beard"></div><div class="mouth"></div></div>':'<div class="phone" id="av">📞</div>'}
+function sel(m){mode=m;$("t1").className="tab"+(m=="phone"?" on":"");$("t2").className="tab"+(m=="video"?" on":"");draw()}
+$("t1").onclick=function(){sel("phone")};$("t2").onclick=function(){sel("video")};
+function add(w,t){var p=document.createElement("p");p.className=w=="s"?"s":"";p.textContent=(w=="s"?"Santa: ":"You: ")+t;$("log").appendChild(p);$("log").scrollTop=1e5}
+async function say(t,cb){
+ add("s",t);var av=$("av");av&&av.classList.add("talk");
+ var done=function(){av&&av.classList.remove("talk");cb&&cb()};
+ try{
+  var r=await fetch(API+"/api/speak",{method:"POST",headers:{"content-type":"application/json"},body:JSON.stringify({text:t})});
+  if(!r.ok)throw 0;
+  audio.src=URL.createObjectURL(await r.blob());audio.onended=done;audio.onerror=done;await audio.play();
+ }catch(e){ // fallback: phone's built-in voice
+  try{var u=new SpeechSynthesisUtterance(t);u.pitch=.6;u.rate=.9;u.onend=done;u.onerror=done;speechSynthesis.speak(u)}catch(x){done()}
+ }
+}
+function listen(){
+ if(!on||!SR)return;$("st").textContent="Santa is listening… 👂";
+ rec=new SR();rec.lang="en-US";rec.onresult=function(e){ask(e.results[0][0].transcript)};
+ rec.onerror=function(){$("st").textContent="Tap Send to type instead."};try{rec.start()}catch(e){}
+}
+async function ask(t){
+ if(!on||busy||!t.trim())return;busy=true;add("u",t);hist.push({role:"child",text:t});$("st").textContent="Santa is thinking… 🎄";
+ try{
+  var r=await fetch(API+"/api/chat",{method:"POST",headers:{"content-type":"application/json"},body:JSON.stringify({history:hist})});
+  var d=await r.json();if(!d.reply)throw 0;
+  hist.push({role:"santa",text:d.reply});busy=false;say(d.reply,listen);
+ }catch(e){busy=false;$("st").textContent="Santa's line is busy. Try again!"}
+}
+$("go").onclick=function(){
+ if(!on){on=true;hist=[];$("log").innerHTML="";$("go").textContent="Hang up";$("go").className="main end";
+  var g="Ho ho ho! Merry Christmas! This is Santa. Who am I talking to? You can just tell me a nickname!";hist.push({role:"santa",text:g});say(g,listen)}
+ else{on=false;busy=false;audio.pause();try{speechSynthesis.cancel();rec&&rec.abort()}catch(e){}$("go").textContent="Start the call";$("go").className="main";$("st").textContent="Call ended. Merry Christmas! 🎄";var av=$("av");av&&av.classList.remove("talk")}
+};
+$("send").onclick=function(){var v=$("txt").value;$("txt").value="";try{rec&&rec.abort()}catch(e){}ask(v)};
+$("txt").onkeydown=function(e){if(e.key=="Enter")$("send").onclick()};
+draw();
+</script></body></html>
